@@ -115,6 +115,12 @@ defmodule SymphonyElixir.TestSupport do
           codex_turn_timeout_ms: 3_600_000,
           codex_read_timeout_ms: 5_000,
           codex_stall_timeout_ms: 300_000,
+          opencode_command: "opencode",
+          opencode_model: nil,
+          opencode_agent: nil,
+          opencode_run_timeout_ms: 3_600_000,
+          opencode_format: "json",
+          opencode_dangerously_skip_permissions: false,
           hook_after_create: nil,
           hook_before_run: nil,
           hook_after_run: nil,
@@ -153,6 +159,12 @@ defmodule SymphonyElixir.TestSupport do
     codex_turn_timeout_ms = Keyword.get(config, :codex_turn_timeout_ms)
     codex_read_timeout_ms = Keyword.get(config, :codex_read_timeout_ms)
     codex_stall_timeout_ms = Keyword.get(config, :codex_stall_timeout_ms)
+    opencode_command = Keyword.get(config, :opencode_command)
+    opencode_model = Keyword.get(config, :opencode_model)
+    opencode_agent = Keyword.get(config, :opencode_agent)
+    opencode_run_timeout_ms = Keyword.get(config, :opencode_run_timeout_ms)
+    opencode_format = Keyword.get(config, :opencode_format)
+    opencode_dangerously_skip_permissions = Keyword.get(config, :opencode_dangerously_skip_permissions)
     hook_after_create = Keyword.get(config, :hook_after_create)
     hook_before_run = Keyword.get(config, :hook_before_run)
     hook_after_run = Keyword.get(config, :hook_after_run)
@@ -195,6 +207,13 @@ defmodule SymphonyElixir.TestSupport do
         "  turn_timeout_ms: #{yaml_value(codex_turn_timeout_ms)}",
         "  read_timeout_ms: #{yaml_value(codex_read_timeout_ms)}",
         "  stall_timeout_ms: #{yaml_value(codex_stall_timeout_ms)}",
+        "opencode:",
+        "  command: #{yaml_value(opencode_command)}",
+        "  model: #{yaml_value(opencode_model)}",
+        "  agent: #{yaml_value(opencode_agent)}",
+        "  run_timeout_ms: #{yaml_value(opencode_run_timeout_ms)}",
+        "  format: #{yaml_value(opencode_format)}",
+        "  dangerously_skip_permissions: #{yaml_value(opencode_dangerously_skip_permissions)}",
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),

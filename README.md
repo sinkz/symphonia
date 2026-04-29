@@ -15,17 +15,49 @@ complexity analysis, and execution evidence._
 
 ## What Symphonia Proposes
 
-Symphonia is designed as a pluggable orchestration core:
+Symphonia is designed as a pluggable orchestration core where your stack choices stay yours:
 
-- Agent runtime provider boundary: default `codex` today, with space for providers like
-  `opencode`.
-- Tracker adapter boundary: default `linear`, with extension points for Jira, Trello, ClickUp, and
-  custom adapters.
+- Bring your runtime: `codex`, `opencode`, or a custom harness-compatible provider.
+- Bring your tracker: `linear` by default, plus Jira/Trello/ClickUp/custom adapters.
 - Workspace-isolated execution model: each issue/task runs in its own workspace lifecycle.
 - In-repo workflow policy: teams version prompts, runtime settings, and hooks through
   `WORKFLOW.md`.
 
-This allows us to evolve providers and trackers without rewriting the orchestrator core.
+This means Symphonia is not a bet on one vendor runtime or one issue tracker. It is a stable
+execution core that keeps your delivery system portable.
+
+## Open Runtime, Open Tracker
+
+Symphonia defaults to `codex` + `linear` because they are practical defaults, not hard lock-in.
+
+Example runtime switch:
+
+```yaml
+agent:
+  provider: opencode
+
+opencode:
+  command: opencode
+  model: anthropic/claude-sonnet-4
+  agent: build
+  run_timeout_ms: 3600000
+```
+
+Example custom provider registration:
+
+```elixir
+Application.put_env(:symphony_elixir, :agent_provider_modules, %{
+  "my-runtime" => MyApp.AgentProvider
+})
+```
+
+Example custom tracker registration:
+
+```elixir
+Application.put_env(:symphony_elixir, :tracker_adapter_modules, %{
+  "jira" => MyApp.Tracker.JiraAdapter
+})
+```
 
 ## Running Symphonia
 

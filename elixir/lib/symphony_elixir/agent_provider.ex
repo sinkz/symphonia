@@ -14,7 +14,8 @@ defmodule SymphonyElixir.AgentProvider do
   @callback stop_session(term()) :: :ok
 
   @builtin_providers %{
-    "codex" => SymphonyElixir.Codex.AppServer
+    "codex" => SymphonyElixir.Codex.AppServer,
+    "opencode" => SymphonyElixir.OpenCode.Runner
   }
 
   @spec provider() :: {:ok, module()} | {:error, term()}

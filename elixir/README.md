@@ -15,10 +15,9 @@ This directory contains the current Elixir/OTP implementation of Symphonia, base
 
 1. Polls Linear for candidate work
 2. Creates a workspace per issue
-3. Launches Codex in [App Server mode](https://developers.openai.com/codex/app-server/) inside the
-   workspace
-4. Sends a workflow prompt to Codex
-5. Keeps Codex working on the issue until the work is done
+3. Launches the configured runtime provider (`codex` by default, `opencode` supported) inside the workspace
+4. Sends a workflow prompt to that runtime
+5. Keeps the runtime working on the issue until the work is done
 
 During app-server sessions, Symphonia also serves a client-side `linear_graphql` tool so that repo
 skills can make raw Linear GraphQL calls.
@@ -81,7 +80,7 @@ Optional flags:
 - `--port` also starts the Phoenix observability service (default: disabled)
 
 The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
-Codex session prompt.
+runtime session prompt.
 
 Minimal example:
 
@@ -113,6 +112,16 @@ Notes:
 - If a value is missing, defaults are used.
 - `agent.provider` selects the coding-agent runtime. The built-in default is `codex`; other
   providers can be registered by implementations without changing the orchestrator.
+- Built-in providers:
+  - `codex`: Codex App Server session provider.
+  - `opencode`: OpenCode one-shot turn provider via `opencode run --format json`.
+- OpenCode provider config:
+  - `opencode.command` default `opencode`
+  - `opencode.model` optional
+  - `opencode.agent` optional
+  - `opencode.run_timeout_ms` default `3600000`
+  - `opencode.format` default `json`
+  - `opencode.dangerously_skip_permissions` default `false`
 - Safer Codex defaults are used when policy fields are omitted:
   - `codex.approval_policy` defaults to `{"reject":{"sandbox_approval":true,"rules":true,"mcp_elicitations":true}}`
   - `codex.thread_sandbox` defaults to `workspace-write`
@@ -149,6 +158,49 @@ hooks:
     git clone --depth 1 "$SOURCE_REPO_URL" .
 codex:
   command: "$CODEX_BIN --config 'model=\"gpt-5.5\"' app-server"
+```
+
+OpenCode runtime example:
+
+```yaml
+agent:
+  provider: opencode
+
+opencode:
+  command: opencode
+  model: anthropic/claude-sonnet-4
+  agent: build
+  run_timeout_ms: 3600000
+  format: json
+  dangerously_skip_permissions: false
+```
+
+Custom harness-compatible runtime provider example:
+
+```elixir
+defmodule MyApp.AgentProvider do
+  @behaviour SymphonyElixir.AgentProvider
+
+  def start_session(workspace, _opts), do: {:ok, %{workspace: workspace}}
+
+  def run_turn(session, _prompt, issue, _opts) do
+    {:ok, %{session_id: "my-runtime-#{issue.identifier}", result: session}}
+  end
+
+  def stop_session(_session), do: :ok
+end
+
+Application.put_env(:symphony_elixir, :agent_provider_modules, %{
+  "my-runtime" => MyApp.AgentProvider
+})
+```
+
+Custom tracker adapter example:
+
+```elixir
+Application.put_env(:symphony_elixir, :tracker_adapter_modules, %{
+  "jira" => MyApp.Tracker.JiraAdapter
+})
 ```
 
 - If `WORKFLOW.md` is missing or has invalid YAML at startup, Symphonia does not boot.
