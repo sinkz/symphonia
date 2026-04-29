@@ -39,6 +39,57 @@ defmodule SymphonyElixir.ExtensionsTest do
     end
   end
 
+  defmodule FakeAgentProvider do
+    @behaviour SymphonyElixir.AgentProvider
+
+    def start_session(workspace, opts) do
+      notify({:fake_agent_start_session, workspace, opts})
+      {:ok, %{workspace: workspace}}
+    end
+
+    def run_turn(session, prompt, issue, opts) do
+      notify({:fake_agent_run_turn, session, prompt, issue, opts})
+
+      if on_message = Keyword.get(opts, :on_message) do
+        on_message.(%{event: :fake_agent_update, session_id: "fake-session"})
+      end
+
+      {:ok, %{session_id: "fake-session", provider: :fake}}
+    end
+
+    def stop_session(session) do
+      notify({:fake_agent_stop_session, session})
+      :ok
+    end
+
+    defp notify(message) do
+      if recipient = Application.get_env(:symphony_elixir, :fake_agent_provider_recipient) do
+        send(recipient, message)
+      end
+    end
+  end
+
+  defmodule FakeTrackerAdapter do
+    @behaviour SymphonyElixir.Tracker
+
+    def fetch_candidate_issues, do: {:ok, fake_issues()}
+    def fetch_issues_by_states(_states), do: {:ok, fake_issues()}
+    def fetch_issue_states_by_ids(_issue_ids), do: {:ok, fake_issues()}
+    def create_comment(_issue_id, _body), do: :ok
+    def update_issue_state(_issue_id, _state_name), do: :ok
+
+    defp fake_issues do
+      [
+        %SymphonyElixir.Issue{
+          id: "fake-issue",
+          identifier: "FAKE-1",
+          title: "Fake tracker issue",
+          state: "In Progress"
+        }
+      ]
+    end
+  end
+
   defmodule SlowOrchestrator do
     use GenServer
 
@@ -203,6 +254,108 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "linear")
     assert SymphonyElixir.Tracker.adapter() == Adapter
+  end
+
+  test "tracker adapter registry supports custom tracker kinds" do
+    previous_adapters = Application.get_env(:symphony_elixir, :tracker_adapter_modules)
+
+    on_exit(fn ->
+      if is_nil(previous_adapters) do
+        Application.delete_env(:symphony_elixir, :tracker_adapter_modules)
+      else
+        Application.put_env(:symphony_elixir, :tracker_adapter_modules, previous_adapters)
+      end
+    end)
+
+    Application.put_env(:symphony_elixir, :tracker_adapter_modules, %{"clickup" => FakeTrackerAdapter})
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "clickup")
+
+    assert Config.settings!().tracker.kind == "clickup"
+    assert :ok = Config.validate!()
+    assert SymphonyElixir.Tracker.adapter() == FakeTrackerAdapter
+    assert {:ok, [%SymphonyElixir.Issue{identifier: "FAKE-1"}]} = SymphonyElixir.Tracker.fetch_candidate_issues()
+
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "unknown")
+    assert {:error, {:unsupported_tracker_kind, "unknown"}} = Config.validate!()
+  end
+
+  test "agent provider registry defaults to codex and supports custom providers" do
+    previous_providers = Application.get_env(:symphony_elixir, :agent_provider_modules)
+
+    on_exit(fn ->
+      if is_nil(previous_providers) do
+        Application.delete_env(:symphony_elixir, :agent_provider_modules)
+      else
+        Application.put_env(:symphony_elixir, :agent_provider_modules, previous_providers)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().agent.provider == "codex"
+    assert SymphonyElixir.AgentProvider.provider() == {:ok, SymphonyElixir.Codex.AppServer}
+
+    Application.put_env(:symphony_elixir, :agent_provider_modules, %{"fake" => FakeAgentProvider})
+    write_workflow_file!(Workflow.workflow_file_path(), agent_provider: "fake")
+
+    assert :ok = Config.validate!()
+    assert SymphonyElixir.AgentProvider.provider() == {:ok, FakeAgentProvider}
+
+    write_workflow_file!(Workflow.workflow_file_path(), agent_provider: "unknown")
+    assert {:error, {:unsupported_agent_provider, "unknown"}} = Config.validate!()
+  end
+
+  test "agent runner can execute through a custom agent provider" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-fake-agent-provider-#{System.unique_integer([:positive])}"
+      )
+
+    previous_providers = Application.get_env(:symphony_elixir, :agent_provider_modules)
+    previous_recipient = Application.get_env(:symphony_elixir, :fake_agent_provider_recipient)
+
+    on_exit(fn ->
+      if is_nil(previous_providers) do
+        Application.delete_env(:symphony_elixir, :agent_provider_modules)
+      else
+        Application.put_env(:symphony_elixir, :agent_provider_modules, previous_providers)
+      end
+
+      if is_nil(previous_recipient) do
+        Application.delete_env(:symphony_elixir, :fake_agent_provider_recipient)
+      else
+        Application.put_env(:symphony_elixir, :fake_agent_provider_recipient, previous_recipient)
+      end
+
+      File.rm_rf(test_root)
+    end)
+
+    Application.put_env(:symphony_elixir, :agent_provider_modules, %{"fake" => FakeAgentProvider})
+    Application.put_env(:symphony_elixir, :fake_agent_provider_recipient, self())
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_provider: "fake",
+      workspace_root: test_root,
+      max_turns: 1
+    )
+
+    issue = %SymphonyElixir.Issue{
+      id: "fake-issue",
+      identifier: "FAKE-1",
+      title: "Run with fake provider",
+      description: "Use the provider boundary",
+      state: "In Progress"
+    }
+
+    assert :ok = AgentRunner.run(issue, self(), issue_state_fetcher: fn _ids -> {:ok, []} end)
+
+    assert_receive {:fake_agent_start_session, workspace, [worker_host: nil]}
+    assert String.ends_with?(workspace, "FAKE-1")
+    assert_receive {:fake_agent_run_turn, %{workspace: ^workspace}, prompt, ^issue, opts}
+    assert prompt =~ "You are an agent for this repository."
+    assert is_function(Keyword.fetch!(opts, :on_message), 1)
+    assert_receive {:codex_worker_update, "fake-issue", %{event: :fake_agent_update}}
+    assert_receive {:fake_agent_stop_session, %{workspace: ^workspace}}
   end
 
   test "linear adapter delegates reads and validates mutation responses" do

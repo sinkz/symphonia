@@ -1,9 +1,10 @@
-defmodule SymphonyElixir.Linear.Issue do
+defmodule SymphonyElixir.Issue do
   @moduledoc """
-  Backwards-compatible Linear issue representation.
+  Normalized issue representation used by the orchestrator.
 
-  New tracker adapters should target `SymphonyElixir.Issue`; this module keeps
-  the original Linear-facing struct name stable for existing code and tests.
+  Tracker adapters should return this shape, or a compatible struct/map with the
+  same fields. `SymphonyElixir.Linear.Issue` remains supported for backwards
+  compatibility with the original Linear implementation.
   """
 
   defstruct [
@@ -39,6 +40,7 @@ defmodule SymphonyElixir.Linear.Issue do
           updated_at: DateTime.t() | nil
         }
 
-  @spec label_names(t()) :: [String.t()]
-  def label_names(issue), do: SymphonyElixir.Issue.label_names(issue)
+  @spec label_names(t() | map()) :: [String.t()]
+  def label_names(%{labels: labels}) when is_list(labels), do: labels
+  def label_names(_issue), do: []
 end

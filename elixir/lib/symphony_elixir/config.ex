@@ -116,10 +116,13 @@ defmodule SymphonyElixir.Config do
 
   defp validate_semantics(settings) do
     cond do
+      match?({:error, _}, SymphonyElixir.AgentProvider.provider(settings.agent.provider)) ->
+        SymphonyElixir.AgentProvider.provider(settings.agent.provider)
+
       is_nil(settings.tracker.kind) ->
         {:error, :missing_tracker_kind}
 
-      settings.tracker.kind not in ["linear", "memory"] ->
+      match?({:error, _}, SymphonyElixir.Tracker.adapter(settings.tracker.kind)) ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.api_key) ->
